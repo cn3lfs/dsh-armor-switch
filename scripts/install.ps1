@@ -287,6 +287,95 @@ function Remove-ArmorInsertBlocks([string]$Text, [string]$Nl) {
     return @{ Text = $Text; Removed = $removed }
 }
 
+# Profile 层对 connection 只覆盖 config.trustedHosts 为静态空数组，不再用
+# !!js ctx.webRuntime.trustedHosts（0.2.1-rc.3 中 webRuntime 不再是可解析服务，
+# 会导致 Connection 自身阻塞并拖垮所有依赖 connection 的插件）。
+# 这里不碰 inject（bundle 层已提供 [webServer]），只保证 config 不再求值 !!js。
+function New-ConnectionOverrideBlock([string]$Nl) {
+    $SP = [string][char]32
+    $i2 = $SP * 2
+    $i4 = $SP * 4
+    $lines = @(
+        '- id: connection',
+        ($i2 + "name: '@deepseek-ai/dsh-client-connection'"),
+        ($i2 + 'config:'),
+        ($i4 + 'trustedHosts: []')
+    )
+    $block = (($lines -join $Nl) + $Nl)
+    $widths = @()
+    foreach ($line in ($block -split "`r?`n")) {
+        if ($line.Length -eq 0) { continue }
+        $w = 0
+        foreach ($ch in $line.ToCharArray()) { if ($ch -eq ' ') { $w++ } else { break } }
+        $widths += $w
+    }
+    $expected = @(0, 2, 2, 4)
+    if (($widths -join ',') -ne ($expected -join ',')) {
+        throw ("armor-switch: 生成的 connection patch 块缩进异常（得到 [$($widths -join ',')]，期望 [$(($expected -join ','))]）。" +
+               '已中止，未写入 profile。')
+    }
+    return $block
+}
+
+# 定位 profile 中的 connection 顶层条目（与 Get-ArmorEntryBounds 同理）。
+function Get-ConnectionEntryBounds([string[]]$lines) {
+    $idIdx = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^[ \t]*-?\s*id:\s*connection\s*$') { $idIdx = $i; break }
+    }
+    if ($idIdx -lt 0) { return $null }
+    $start = 0
+    for ($i = $idIdx; $i -ge 0; $i--) {
+        if ($lines[$i] -match '^-(?:\s|$)') { $start = $i; break }
+    }
+    $end = $lines.Count
+    for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^-(?:\s|$)') { $end = $i; break }
+    }
+    return @($start, $end, $idIdx)
+}
+
+# 就地把 connection 条目的 config.trustedHosts 设为 []，不改其它键。
+function Set-ConnectionTrustedHosts {
+    param([string[]]$Lines, [int]$Start, [int]$End, [int]$IdIdx, [string]$Nl)
+    $idLine = $Lines[$IdIdx]
+    $lead = [regex]::Match($idLine, '^[ \t]*').Value
+    if ($idLine.TrimStart().StartsWith('- ')) { $propIndent = $lead + '  ' } else { $propIndent = $lead }
+    $cfgIdx = -1
+    for ($i = $Start; $i -lt $End; $i++) {
+        if ($Lines[$i] -match '^[ \t]*config:\s*$') { $cfgIdx = $i; break }
+    }
+    $out = New-Object System.Collections.Generic.List[string]
+    $setTh = $false
+    for ($i = 0; $i -lt $Lines.Count; $i++) {
+        if ($cfgIdx -ge 0 -and $i -gt $cfgIdx -and $i -lt $End) {
+            if ($Lines[$i] -match '^[ \t]*trustedHosts:\s*.*\s*$') {
+                $out.Add($propIndent + '  trustedHosts: []' + $Nl); $setTh = $true; continue
+            }
+        }
+        $out.Add($Lines[$i])
+    }
+    $arr = @($out.ToArray())
+    if ($cfgIdx -lt 0) {
+        $ins = @(
+            ($propIndent + 'config:' + $Nl),
+            ($propIndent + '  trustedHosts: []' + $Nl)
+        )
+        $head = @($arr[0..($End - 1)])
+        $tail = @()
+        if ($End -le $arr.Count - 1) { $tail = @($arr[$End..($arr.Count - 1)]) }
+        return (($head + $ins + $tail) -join '')
+    }
+    if (-not $setTh) {
+        $ins = @($propIndent + '  trustedHosts: []' + $Nl)
+        $head = @($arr[0..$cfgIdx])
+        $tail = @()
+        if ($cfgIdx + 1 -le $arr.Count - 1) { $tail = @($arr[($cfgIdx + 1)..($arr.Count - 1)]) }
+        return (($head + $ins + $tail) -join '')
+    }
+    return ($arr -join '')
+}
+
 # ---------------------------------------------------------------- 路径解析
 if (-not $ProfilePath) {
     # 优先用当前会话绑定的 profile（DSH Desktop 会把 DSH_PROFILE_DIR 写进环境），
@@ -506,6 +595,46 @@ if ($null -ne $bounds) {
         Write-TextUtf8NoBom $patchYml ($ymlText + $append)
         Say-Ok "cordis.patch.yml 末尾已追加 id-override 块（+$($append.Length) 字节）"
     }
+}
+
+# 确保 connection 行的 config.trustedHosts 为静态空数组，避免 !!js ctx.webRuntime
+# 导致 Connection 自身阻塞（0.2.1-rc.3 中 webRuntime 不再是可解析服务），
+# 从而拖垮 armor-switch 等所有依赖 connection 的插件。
+if ($dry) {
+    $connTextForConn = $ymlText
+} else {
+    $connTextForConn = Read-Text $patchYml
+}
+$connLines = [regex]::Split($connTextForConn, "(?<=\n)")
+$connBounds = Get-ConnectionEntryBounds $connLines
+$connChanged = $false
+if ($null -ne $connBounds) {
+    $cStart = $connBounds[0]; $cEnd = $connBounds[1]; $cIdIdx = $connBounds[2]
+    $connNew = Set-ConnectionTrustedHosts -Lines $connLines -Start $cStart -End $cEnd -IdIdx $cIdIdx -Nl $ymlNl
+    if ($connNew -ne ($connLines -join '')) {
+        $connChanged = $true
+        if ($dry) {
+            Say-Plan "就地规整 connection 条目 config.trustedHosts 为 []"
+        } else {
+            $connTextForConn = $connNew
+            Say-Act "cordis.patch.yml connection 条目 trustedHosts 已改为静态 []"
+        }
+    }
+} else {
+    $cblock = New-ConnectionOverrideBlock $ymlNl
+    if ($connTextForConn.EndsWith($ymlNl)) { $cappend = $cblock } else { $cappend = $ymlNl + $cblock }
+    if ($dry) {
+        Say-Plan "在 cordis.patch.yml 末尾追加 connection 条目（trustedHosts: []）"
+        $cblock.TrimEnd("`r", "`n").Split($ymlNl) | ForEach-Object { Say-Plan ('    ' + $_) }
+    } else {
+        $connTextForConn = $connTextForConn + $cappend
+        Say-Act "cordis.patch.yml 末尾已追加 connection 条目（+$($cappend.Length) 字节）"
+    }
+}
+if (-not $dry -and $connChanged) {
+    $bak = Backup-File $patchYml $stamp
+    Write-TextUtf8NoBom $patchYml $connTextForConn
+    Say-Ok 'cordis.patch.yml connection 条目已写回'
 }
 
 # ---------------------------------------------------------------- 5/5 后置验证

@@ -31,17 +31,26 @@
 # channel never mounts: `POST /armor-switch/<endpoint>` answers 405 while a
 # registered channel answers 401, and the chip shows a permanent error.
 #
+# 0.2.1-rc.3 note: `webRuntime` is no longer a resolvable service, so the
+# inherited `trustedHosts: !!js ctx.webRuntime.trustedHosts` would throw
+# `cannot get property "webRuntime" without inject` and block Connection itself,
+# dragging down every plugin that depends on `connection` (armor-switch included).
+# `inject` is trimmed to `[webServer]` and `trustedHosts` is a static empty list;
+# the private `/armor-switch` channel is local-only and does not need remote
+# trusted hosts.
+#
 # Do NOT delete this block. It is self-contained (it does not depend on any
 # other plugin's patch) and harmless for Connection itself.
 #
 # A patch replaces the targeted row's WHOLE `config`, so it is repeated here
-# verbatim from the web-app layer; only `inject` gains `webServer`. Same shape
-# the dsh-unrestricted bundle used.
+# verbatim from the web-app layer; only `inject` gains `webServer` and
+# `trustedHosts` loses the `!!js` expression. Same shape the dsh-unrestricted
+# bundle used.
 - id: connection
   name: '@deepseek-ai/dsh-client-connection'
-  inject: [webRuntime, webServer]
+  inject: [webServer]
   config:
-    trustedHosts: !!js ctx.webRuntime.trustedHosts
+    trustedHosts: []
 
 - insert:
     - id: armor-switch

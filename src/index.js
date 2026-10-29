@@ -715,11 +715,20 @@ export function apply(ctx, config) {
   }), 'armor-switch: ordinary preferences')
 
   // Private channel used by the plugin-detail page through Connection RPC.
+  // Connection may be unavailable (e.g. its own webServer/webRuntime services
+  // not ready in this DSH version); that must never take down the contract
+  // registrations above, so the chip and the toggle keep working even when the
+  // detail-page RPC channel cannot mount.
   ctx.inject(['connection'], (connectionCtx) => {
-    const disposeRpc = connectionCtx.connection.rpc.handle(RPC_CHANNEL, (endpoint, payload) =>
-      handleRpc(endpoint, payload, ctx))
-    return async () => {
-      await disposeRpc()
+    try {
+      const disposeRpc = connectionCtx.connection.rpc.handle(RPC_CHANNEL, (endpoint, payload) =>
+        handleRpc(endpoint, payload, ctx))
+      return async () => {
+        await disposeRpc()
+      }
+    } catch (error) {
+      state.notes.push(`rpc: connection unavailable (${messageOf(error)}); detail-page RPC disabled`)
+      return async () => {}
     }
   })
 }
