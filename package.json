@@ -1,8 +1,8 @@
 {
   "name": "dsh-armor-switch",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "private": true,
-  "description": "Reversible armor switch with a persistent live prompt contract, verified host cleaning (original-fs, so it works under Electron), profile cleaning, and plugin-page controls.",
+  "description": "Reversible armor switch with a persistent live prompt contract, verified host cleaning (original-fs, so it works under Electron), profile cleaning, and plugin-page controls. Updated for DSH Desktop 0.2.1-rc.3 / Cordis 4.0.5.",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
@@ -21,7 +21,7 @@
   "dsh": {
     "id": "armor-switch",
     "name": "破甲开关",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "bundle": {
       "patch": "./cordis.patch.yml"
     },

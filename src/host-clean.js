@@ -591,9 +591,14 @@ export function dshHome() {
   return path.join(home, '.dsh')
 }
 
-/** Where the restore record lives; kept beside the profile, not inside a plugin dir. */
-export function manifestPath() {
-  return path.join(dshHome(), 'armor-switch-hostclean.json')
+/** Where the restore record lives; kept beside the profile's cordis.patch.yml,
+ *  not in DSH_HOME root and not inside the plugin directory.
+ *  @param profileDir - the active profile directory; `null` when it cannot be
+ *  resolved, in which case this returns `null` and callers degrade gracefully.
+ */
+export function manifestPath(profileDir) {
+  if (!profileDir) return null
+  return path.join(profileDir, 'armor-switch-hostclean.json')
 }
 
 /** Read the restore record, or null. */

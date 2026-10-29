@@ -366,9 +366,12 @@ check('V13.5', 'detectAsar 对不存在的路径返回 null（不炸）',
   hc.detectAsar('C:\\definitely\\not\\here\\app.asar') === null,
   'null returned')
 
-check('V13.6', 'manifest 路径在 DSH_HOME 下且不依赖任何插件目录',
-  hc.manifestPath().includes('.dsh') && !/fujiang|armor-switch[/\\]src/.test(hc.manifestPath()),
-  hc.manifestPath())
+const profileDir = path.join(sandbox.root, 'profiles', 'web')
+fs.mkdirSync(profileDir, { recursive: true })
+check('V13.6', 'manifest 路径只依赖传入的 profile 目录，不依赖插件目录',
+  hc.manifestPath(profileDir) === path.join(profileDir, 'armor-switch-hostclean.json')
+  && hc.manifestPath() === null,
+  `manifestPath(profile)=${hc.manifestPath(profileDir)} manifestPath()=${hc.manifestPath()}`)
 
 check('V13.7', 'revert 在无 manifest 时安全降级',
   (() => {

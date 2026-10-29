@@ -142,7 +142,7 @@ function runHostClean(ctx) {
       state.hostClean = { ok: false, reason: 'app.asar not found' }
       return state.hostClean
     }
-    const { results, manifest } = applyHostClean(asar, { manifestPath: manifestPath() })
+    const { results, manifest } = applyHostClean(asar, { manifestPath: manifestPath(configuredProfile) })
     const patched = results.filter((r) => r.action === 'patched').length
     const already = results.filter((r) => r.action === 'already').length
     const skipped = results.filter((r) => r.action === 'skip')
@@ -151,7 +151,7 @@ function runHostClean(ctx) {
     // already current is a success, not an anomaly.
     let deployed = null
     try {
-      const rows = inspectHost(asar, readManifest(manifestPath()))
+      const rows = inspectHost(asar, readManifest(manifestPath(configuredProfile)))
       deployed = {
         patched: rows.filter((r) => r.state === 'patched').length,
         clean: rows.filter((r) => r.state === 'clean').length,

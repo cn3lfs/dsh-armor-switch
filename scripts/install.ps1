@@ -288,8 +288,18 @@ function Remove-ArmorInsertBlocks([string]$Text, [string]$Nl) {
 }
 
 # ---------------------------------------------------------------- 路径解析
-if (-not $ProfilePath)     { $ProfilePath = Join-Path $env:USERPROFILE '.dsh\profiles\desktop' }
-if (-not $StagingPath)     { $StagingPath = Join-Path $env:USERPROFILE '.dsh\plugins\dsh-armor-switch' }
+if (-not $ProfilePath) {
+    # 优先用当前会话绑定的 profile（DSH Desktop 会把 DSH_PROFILE_DIR 写进环境），
+    # 再退回到 DSH_HOME/profiles/<DSH_PROFILE>，最后才是旧版默认的 desktop profile。
+    if ($env:DSH_PROFILE_DIR) {
+        $ProfilePath = $env:DSH_PROFILE_DIR
+    } elseif ($env:DSH_HOME -and $env:DSH_PROFILE) {
+        $ProfilePath = Join-Path $env:DSH_HOME ("profiles\" + $env:DSH_PROFILE)
+    } else {
+        $ProfilePath = Join-Path $env:USERPROFILE '.dsh\profiles\desktop'
+    }
+}
+if (-not $StagingPath) { $StagingPath = Join-Path $env:USERPROFILE '.dsh\plugins\dsh-armor-switch' }
 
 $self    = $PSCommandPath; if (-not $self) { $self = $MyInvocation.MyCommand.Path }
 $selfDir = Split-Path -Parent $self
